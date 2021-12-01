@@ -47,7 +47,7 @@ import select
 import time
 import stat
 import errno
-import StringIO
+import io
 import logging.handlers
 import struct
 import threading
@@ -77,13 +77,13 @@ class Frame(object):
     def __init__(self, macPDUByteArray, timestampBy32):
         self.__macPDUByteArray = macPDUByteArray
         self.timestampBy32 = timestampBy32
-        self.timestampUsec = timestampBy32 / 32.0
+        self.timestampUsec = int(timestampBy32 / 32.0)
         self.len = len(self.__macPDUByteArray)
 
         self.__pcap_hdr = self.__generate_frame_hdr()
 
         self.pcap = self.__pcap_hdr + self.__macPDUByteArray
-        self.hex = ''.join('%02x ' % ord(c) for c in self.__macPDUByteArray).rstrip()
+        self.hex = ''.join('%02x ' % c for c in self.__macPDUByteArray).rstrip()
 
     def __generate_frame_hdr(self):
         sec = 0
@@ -170,18 +170,18 @@ class FifoHandler(object):
                                  % (self.out_fifo,))
                     sys.exit(1)
                 else:
-                    logger.warn('FIFO %s exists. Using it' % (self.out_fifo,))
+                    logger.warning('FIFO %s exists. Using it' % (self.out_fifo,))
             else:
                 raise
 
     def __open_fifo(self, keepalive=False):
         try:
             fd = os.open(self.out_fifo, os.O_NONBLOCK | os.O_WRONLY)
-            self.of = os.fdopen(fd, 'w')
+            self.of = os.fdopen(fd, 'wb')
         except OSError as e:
             if e.errno == errno.ENXIO:
                 if not keepalive:
-                    logger.warn('Remote end not reading')
+                    # gsc logger.warning('Remote end not reading')
                     stats['Not Piped'] += 1
                 self.of = None
                 self.needs_pcap_hdr = True
@@ -225,9 +225,9 @@ class PcapDumpHandler(object):
             logger.info("Dumping PCAP to %s" % (self.filename,))
         except IOError as e:
             self.of = None
-            logger.warn("Error opening %s to save pcap. Skipping"
+            logger.warning("Error opening %s to save pcap. Skipping"
                          % (self.filename))
-            logger.warn("The error was: %d - %s"
+            logger.warning("The error was: %d - %s"
                          % (e.args))
 
     def handle(self, frame):
@@ -247,9 +247,9 @@ class HexdumpHandler(object):
             self.of = open(self.filename, 'wb')
             logger.info("Dumping hex to %s" % (self.filename,))
         except IOError as e:
-            logger.warn("Error opening %s for hex dumps. Skipping"
+            logger.warning("Error opening %s for hex dumps. Skipping"
                          % (self.filename))
-            logger.warn("The error was: %d - %s" % (e.args))
+            logger.warning("The error was: %d - %s" % (e.args))
             self.of = None
 
     def handle(self, frame):
@@ -269,9 +269,9 @@ class HexdumpHandler(object):
             logger.info('HexdumpHandler: Dumped a frame of size %d bytes'
                          % (frame.len))
         except IOError as e:
-            logger.warn("Error writing hex to %s for hex dumps. Skipping"
+            logger.warning("Error writing hex to %s for hex dumps. Skipping"
                      % (self.of))
-            logger.warn("The error was: %d - %s" % (e.args))
+            logger.warning("The error was: %d - %s" % (e.args))
 
 class CC2531:
 
@@ -376,9 +376,9 @@ class CC2531:
                         frame = bytesteam[5:]
 
                         if len(frame) == pktLen:
-                            self.callback(timestamp, frame.tostring())
+                            self.callback(timestamp, frame.tobytes())
                         else:
-                            logger.warn("Received a frame with incorrect length, pkgLen:%d, len(frame):%d" %(pktLen, len(frame)))
+                            logger.warning("Received a frame with incorrect length, pkgLen:%d, len(frame):%d" %(pktLen, len(frame)))
 
 #                     elif cmd == CC2531.COMMAND_CHANNEL:
 #                         logger.info('Received a command response: [%02x %02x]' % (cmd, bytesteam[0]))
@@ -386,7 +386,7 @@ class CC2531:
 #                         # running interactive. Print away
 #                         print 'Sniffing in channel: %d' % (bytesteam[0],)
                     else:
-                        logger.warn("Received a command response with unknown code - CMD:%02x byte:%02x]" % (cmd, bytesteam[0]))
+                        logger.warning("Received a command response with unknown code - CMD:%02x byte:%02x]" % (cmd, bytesteam[0]))
 
 
     def set_channel(self, channel):
@@ -497,7 +497,7 @@ def arg_parser():
     return parser.parse_args()
 
 def dump_stats():
-    s = StringIO.StringIO()
+    s = io.StringIO()
 
     s.write('Frame Stats:\n')
     for k, v in stats.items():
@@ -551,7 +551,7 @@ if __name__ == '__main__':
         handlers.append(PcapDumpHandler(args.pcap_file))
 
     if args.headless is False:
-        h = StringIO.StringIO()
+        h = io.StringIO()
         h.write('Commands:\n')
         h.write('c: Print current RF Channel\n')
         h.write('n: Trigger new pcap header before the next frame\n')
@@ -563,7 +563,7 @@ if __name__ == '__main__':
 
         e = 'Unknown Command. Type h or ? for help'
 
-        print h
+        print(h)
 
     snifferDev = CC2531(handlerDispatcher, args.channel)
     try:
@@ -580,11 +580,11 @@ if __name__ == '__main__':
                         cmd = sys.stdin.readline().rstrip()
                         logger.debug('User input: "%s"' % (cmd,))
                         if cmd in ('h', '?'):
-                            print h
+                            print(h)
                         elif cmd == 'c':
                             # We'll only ever see this if the user asked for it, so we are
                             # running interactive. Print away
-                            print 'Sniffing in channel: %d' % (snifferDev.get_channel(),)
+                            print('Sniffing in channel: %d' % (snifferDev.get_channel(),))
                         elif cmd == 'n':
                             f.triggerNewGlobalHeader()
                         elif cmd == 'q':
@@ -602,9 +602,9 @@ if __name__ == '__main__':
 #                    else:
 #                        logger.debug('No user input')
                 except select.error:
-                    logger.warn('Error while trying to read stdin')
+                    logger.warning('Error while trying to read stdin')
                 except ValueError as e:
-                    print e
+                    print(e)
                 except UnboundLocalError:
                     # Raised by command 'n' when -o was specified at command line
                     pass
