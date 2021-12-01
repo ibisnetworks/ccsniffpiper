@@ -220,7 +220,7 @@ class PcapDumpHandler(object):
         stats['Dumped to PCAP'] = 0
 
         try:
-            self.of = open(self.filename, 'w')
+            self.of = open(self.filename, 'wb')
             self.of.write(PCAPHelper.writeGlobalHeader())
             logger.info("Dumping PCAP to %s" % (self.filename,))
         except IOError as e:
