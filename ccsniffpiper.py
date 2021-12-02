@@ -181,7 +181,7 @@ class FifoHandler(object):
         except OSError as e:
             if e.errno == errno.ENXIO:
                 if not keepalive:
-                    # gsc logger.warning('Remote end not reading')
+                    logger.debug('Remote end not reading')
                     stats['Not Piped'] += 1
                 self.of = None
                 self.needs_pcap_hdr = True
@@ -386,7 +386,7 @@ class CC2531:
 #                         # running interactive. Print away
 #                         print 'Sniffing in channel: %d' % (bytesteam[0],)
                     else:
-                        logger.warning("Received a command response with unknown code - CMD:%02x byte:%02x]" % (cmd, bytesteam[0]))
+                        logger.debug("Received a command response with unknown code - CMD:%02x byte:%02x]" % (cmd, bytesteam[0]))
 
 
     def set_channel(self, channel):
