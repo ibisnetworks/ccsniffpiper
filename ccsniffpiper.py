@@ -74,10 +74,20 @@ stats = {}
 class Frame(object):
     PCAP_FRAME_HDR_FMT = '<LLLL'
 
+    timestampBy32 = 0
+    timestampOffset = 0
+
     def __init__(self, macPDUByteArray, timestampBy32):
         self.__macPDUByteArray = macPDUByteArray
-        self.timestampBy32 = timestampBy32
-        self.timestampUsec = int(timestampBy32 / 32.0)
+        if timestampBy32 < Frame.timestampBy32:
+            Frame.timestampOffset += (1<<32)
+        Frame.timestampBy32 = timestampBy32
+
+        self.timestampUsec = int((Frame.timestampOffset + timestampBy32) / 32.0)
+        if self.timestampUsec >= (1<<32):
+            self.timestampUsec = 0
+            Frame.timestampOffset = 0
+
         self.len = len(self.__macPDUByteArray)
 
         self.__pcap_hdr = self.__generate_frame_hdr()
