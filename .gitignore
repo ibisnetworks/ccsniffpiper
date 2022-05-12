@@ -1,2 +1,7 @@
 *.pyc
 *.pcap
+
+# pyinstaller stuff
+ccsniffpiper.spec
+build/
+dist/

@@ -208,7 +208,7 @@ class FifoHandler(object):
         if self.of is not None:
             try:
                 if self.needs_pcap_hdr is True:
-                    logger.info('Write global PCAP header')
+                    logger.debug('Write global PCAP header')
                     self.of.write(PCAPHelper.writeGlobalHeader())
                     self.needs_pcap_hdr = False
                 self.of.write(data.pcap)
@@ -380,7 +380,7 @@ class CC2531:
                 if len(bytesteam) == cmdLen:
                     # buffer contains the correct number of bytes
                     if CC2531.COMMAND_FRAME == cmd:
-                        logger.info('Read a frame of size %d' % (cmdLen,))
+                        logger.debug('Read a frame of size %d' % (cmdLen,))
                         stats['Captured'] += 1
                         (timestamp, pktLen) = struct.unpack_from("<IB", bytesteam)
                         frame = bytesteam[5:]
