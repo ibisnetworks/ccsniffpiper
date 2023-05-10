@@ -365,9 +365,13 @@ class CC2531:
         while self.running:
             try:
                 bytesteam = self.dev.read(CC2531.DATA_EP, 4096, timeout=CC2531.DATA_TIMEOUT)
+            except usb.core.USBTimeoutError as e:
+                logger.warning("USB Timeout error")
+                continue
             except usb.core.USBError as e:
                 # error 110 is timeout, just ignore, next read might work again
                 if e.errno == 110:
+                    logger.warning("USB error: Timeout")
                     continue
                 else:
                     raise e
@@ -519,7 +523,7 @@ def log_init():
     logger.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
     ch.setLevel(getattr(logging, args.debug_level))
-    cf = logging.Formatter('%(message)s')
+    cf = logging.Formatter('%(asctime)s %(message)s')
     ch.setFormatter(cf)
     logger.addHandler(ch)
 
