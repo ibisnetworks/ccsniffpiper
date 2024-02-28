@@ -88,6 +88,9 @@ class Frame(object):
             self.timestampUsec = 0
             Frame.timestampOffset = 0
 
+        # WATTIQ: self.timestampUsec is broken, keep our own timestamp.
+        self.timestamp = timestampBy32
+
         self.len = len(self.__macPDUByteArray)
 
         self.__pcap_hdr = self.__generate_frame_hdr()
@@ -96,8 +99,8 @@ class Frame(object):
         self.hex = ''.join('%02x ' % c for c in self.__macPDUByteArray).rstrip()
 
     def __generate_frame_hdr(self):
-        sec = 0
-        usec = self.timestampUsec
+        sec = int(self.timestamp)
+        usec = int((self.timestamp % 1) * 1000000)
         return struct.pack(Frame.PCAP_FRAME_HDR_FMT,
                            sec, usec, self.len, self.len)
 
@@ -381,13 +384,18 @@ class CC2531:
             if len(bytesteam) >= 3:
                 (cmd, cmdLen) = struct.unpack_from("<BH", bytesteam)
                 bytesteam = bytesteam[3:]
-                if len(bytesteam) == cmdLen:
+                if len(bytesteam) == 0:
+                    ...
+                elif len(bytesteam) == cmdLen:
                     # buffer contains the correct number of bytes
                     if CC2531.COMMAND_FRAME == cmd:
                         logger.debug('Read a frame of size %d' % (cmdLen,))
                         stats['Captured'] += 1
                         (timestamp, pktLen) = struct.unpack_from("<IB", bytesteam)
                         frame = bytesteam[5:]
+
+                        # WATTIQ: Grab the timestamp from the CPU instead.
+                        timestamp = time.time()
 
                         if len(frame) == pktLen:
                             self.callback(timestamp, frame.tobytes())
