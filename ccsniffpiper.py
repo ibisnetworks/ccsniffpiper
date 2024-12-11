@@ -53,26 +53,32 @@ import struct
 import threading
 import binascii
 import usb.core
-import usb.util
+import usb.backend.libusb1
 from locale import str
 
-__version__ = '0.0.1'
+__version__ = "0.0.2"
+
+backend = usb.backend.libusb1.get_backend(
+    find_library=lambda x: "/opt/homebrew/lib/libusb-1.0.dylib"
+)
+dev = usb.core.find(..., backend=backend)
 
 defaults = {
-    'hex_file': 'ccsniffpiper.hexdump',
-    'out_fifo': '/tmp/ccsniffpiper',
-    'pcap_file': 'ccsniffpiper.pcap',
-    'debug_level': 'WARN',
-    'log_level': 'INFO',
-    'log_file': 'ccsniffpiper.log',
-    'channel': 11,
+    "hex_file": "ccsniffpiper.hexdump",
+    "out_fifo": "/tmp/ccsniffpiper",
+    "pcap_file": "ccsniffpiper.pcap",
+    "debug_level": "WARN",
+    "log_level": "INFO",
+    "log_file": "ccsniffpiper.log",
+    "channel": 11,
 }
 
 logger = logging.getLogger(__name__)
 stats = {}
 
+
 class Frame(object):
-    PCAP_FRAME_HDR_FMT = '<LLLL'
+    PCAP_FRAME_HDR_FMT = "<LLLL"
 
     timestampBy32 = 0
     timestampOffset = 0
@@ -80,11 +86,11 @@ class Frame(object):
     def __init__(self, macPDUByteArray, timestampBy32):
         self.__macPDUByteArray = macPDUByteArray
         if timestampBy32 < Frame.timestampBy32:
-            Frame.timestampOffset += (1<<32)
+            Frame.timestampOffset += 1 << 32
         Frame.timestampBy32 = timestampBy32
 
         self.timestampUsec = int((Frame.timestampOffset + timestampBy32) / 32.0)
-        if self.timestampUsec >= (1<<32):
+        if self.timestampUsec >= (1 << 32):
             self.timestampUsec = 0
             Frame.timestampOffset = 0
 
@@ -96,13 +102,12 @@ class Frame(object):
         self.__pcap_hdr = self.__generate_frame_hdr()
 
         self.pcap = self.__pcap_hdr + self.__macPDUByteArray
-        self.hex = ''.join('%02x ' % c for c in self.__macPDUByteArray).rstrip()
+        self.hex = "".join("%02x " % c for c in self.__macPDUByteArray).rstrip()
 
     def __generate_frame_hdr(self):
         sec = int(self.timestamp)
         usec = int((self.timestamp % 1) * 1000000)
-        return struct.pack(Frame.PCAP_FRAME_HDR_FMT,
-                           sec, usec, self.len, self.len)
+        return struct.pack(Frame.PCAP_FRAME_HDR_FMT, sec, usec, self.len, self.len)
 
     def get_pcap(self):
         return self.pcap
@@ -113,7 +118,9 @@ class Frame(object):
     def get_timestamp(self):
         return self.timestampUsec
 
+
 #####################################
+
 
 class PCAPHelper:
     LINKTYPE_IEEE802_15_4_NOFCS = 230
@@ -126,7 +133,7 @@ class PCAPHelper:
     SNAPLEN = 0xFFFF
     NETWORK = LINKTYPE_IEEE802_15_4
 
-    PCAP_GLOBAL_HDR_FMT = '<LHHlLLL'
+    PCAP_GLOBAL_HDR_FMT = "<LHHlLLL"
 
     @staticmethod
     def writeGlobalHeader():
@@ -138,7 +145,9 @@ class PCAPHelper:
             PCAPHelper.THISZONE,
             PCAPHelper.SIGFIGS,
             PCAPHelper.SNAPLEN,
-            PCAPHelper.NETWORK)
+            PCAPHelper.NETWORK,
+        )
+
 
 class FifoHandler(object):
     def __init__(self, out_fifo):
@@ -147,8 +156,8 @@ class FifoHandler(object):
         self.needs_pcap_hdr = True
         self.thread = None
         self.running = False
-        stats['Piped'] = 0
-        stats['Not Piped'] = 0
+        stats["Piped"] = 0
+        stats["Not Piped"] = 0
         self.__create_fifo()
         self.__start()
 
@@ -175,27 +184,26 @@ class FifoHandler(object):
     def __create_fifo(self):
         try:
             os.mkfifo(self.out_fifo)
-            logger.info('Opened FIFO %s' % (self.out_fifo,))
+            logger.info("Opened FIFO %s" % (self.out_fifo,))
         except OSError as e:
             if e.errno == errno.EEXIST:
                 if stat.S_ISFIFO(os.stat(self.out_fifo).st_mode) is False:
-                    logger.error('File %s exists and is not a FIFO'
-                                 % (self.out_fifo,))
+                    logger.error("File %s exists and is not a FIFO" % (self.out_fifo,))
                     sys.exit(1)
                 else:
-                    logger.warning('FIFO %s exists. Using it' % (self.out_fifo,))
+                    logger.warning("FIFO %s exists. Using it" % (self.out_fifo,))
             else:
                 raise
 
     def __open_fifo(self, keepalive=False):
         try:
             fd = os.open(self.out_fifo, os.O_NONBLOCK | os.O_WRONLY)
-            self.of = os.fdopen(fd, 'wb')
+            self.of = os.fdopen(fd, "wb")
         except OSError as e:
             if e.errno == errno.ENXIO:
                 if not keepalive:
-                    logger.debug('Remote end not reading')
-                    stats['Not Piped'] += 1
+                    logger.debug("Remote end not reading")
+                    stats["Not Piped"] += 1
                 self.of = None
                 self.needs_pcap_hdr = True
             else:
@@ -211,57 +219,56 @@ class FifoHandler(object):
         if self.of is not None:
             try:
                 if self.needs_pcap_hdr is True:
-                    logger.debug('Write global PCAP header')
+                    logger.debug("Write global PCAP header")
                     self.of.write(PCAPHelper.writeGlobalHeader())
                     self.needs_pcap_hdr = False
                 self.of.write(data.pcap)
                 self.of.flush()
-                logger.debug('Wrote a frame of size %d bytes' % (data.len))
-                stats['Piped'] += 1
+                logger.debug("Wrote a frame of size %d bytes" % (data.len))
+                stats["Piped"] += 1
             except IOError as e:
                 if e.errno == errno.EPIPE:
-                    logger.info('Remote end stopped reading')
-                    stats['Not Piped'] += 1
+                    logger.info("Remote end stopped reading")
+                    stats["Not Piped"] += 1
                     self.of = None
                     self.needs_pcap_hdr = True
                 else:
                     raise
+
+
 #####################################
 class PcapDumpHandler(object):
     def __init__(self, filename):
         self.filename = filename
-        stats['Dumped to PCAP'] = 0
+        stats["Dumped to PCAP"] = 0
 
         try:
-            self.of = open(self.filename, 'wb')
+            self.of = open(self.filename, "wb")
             self.of.write(PCAPHelper.writeGlobalHeader())
             logger.info("Dumping PCAP to %s" % (self.filename,))
         except IOError as e:
             self.of = None
-            logger.warning("Error opening %s to save pcap. Skipping"
-                         % (self.filename))
-            logger.warning("The error was: %d - %s"
-                         % (e.args))
+            logger.warning("Error opening %s to save pcap. Skipping" % (self.filename))
+            logger.warning("The error was: %d - %s" % (e.args))
 
     def handle(self, frame):
         if self.of is None:
             return
         self.of.write(frame.get_pcap())
         self.of.flush()
-        logger.info('PcapDumpHandler: Dumped a frame of size %d bytes'
-                     % (frame.len))
-        stats['Dumped to PCAP'] += 1
+        logger.info("PcapDumpHandler: Dumped a frame of size %d bytes" % (frame.len))
+        stats["Dumped to PCAP"] += 1
+
 
 class HexdumpHandler(object):
     def __init__(self, filename):
         self.filename = filename
-        stats['Dumped as Hex'] = 0
+        stats["Dumped as Hex"] = 0
         try:
-            self.of = open(self.filename, 'wb')
+            self.of = open(self.filename, "wb")
             logger.info("Dumping hex to %s" % (self.filename,))
         except IOError as e:
-            logger.warning("Error opening %s for hex dumps. Skipping"
-                         % (self.filename))
+            logger.warning("Error opening %s for hex dumps. Skipping" % (self.filename))
             logger.warning("The error was: %d - %s" % (e.args))
             self.of = None
 
@@ -271,46 +278,47 @@ class HexdumpHandler(object):
 
         try:
             # Prepend the original timestamp in big-endian format
-            self.of.write(binascii.hexlify(struct.pack(">I ", frame.get_timestamp()*32)))
-            #self.of.write(str(frame.get_timestamp()))
+            self.of.write(
+                binascii.hexlify(struct.pack(">I ", frame.get_timestamp() * 32))
+            )
+            # self.of.write(str(frame.get_timestamp()))
             self.of.write("  ")
-#             self.of.write('0000 ')
+            #             self.of.write('0000 ')
             self.of.write(frame.get_hex())
-            self.of.write('\n')
+            self.of.write("\n")
             self.of.flush()
-            stats['Dumped as Hex'] += 1
-            logger.info('HexdumpHandler: Dumped a frame of size %d bytes'
-                         % (frame.len))
+            stats["Dumped as Hex"] += 1
+            logger.info("HexdumpHandler: Dumped a frame of size %d bytes" % (frame.len))
         except IOError as e:
-            logger.warning("Error writing hex to %s for hex dumps. Skipping"
-                     % (self.of))
+            logger.warning(
+                "Error writing hex to %s for hex dumps. Skipping" % (self.of)
+            )
             logger.warning("The error was: %d - %s" % (e.args))
 
-class CC2531:
 
-    DEFAULT_CHANNEL = 0x0B # 11
+class CC2531:
+    DEFAULT_CHANNEL = 0x0B  # 11
 
     DATA_EP = 0x83
     DATA_TIMEOUT = 2500
 
     DIR_OUT = 0x40
-    DIR_IN  = 0xc0
+    DIR_IN = 0xC0
 
-    GET_IDENT = 0xc0
-    SET_POWER = 0xc5
-    GET_POWER = 0xc6
+    GET_IDENT = 0xC0
+    SET_POWER = 0xC5
+    GET_POWER = 0xC6
 
-    SET_START = 0xd0 # bulk in starts
-    SET_STOP  = 0xd1 # bulk in stops
-    SET_CHAN  = 0xd2 # 0x0d (idx 0) + data)0x00 (idx 1)
+    SET_START = 0xD0  # bulk in starts
+    SET_STOP = 0xD1  # bulk in stops
+    SET_CHAN = 0xD2  # 0x0d (idx 0) + data)0x00 (idx 1)
 
     COMMAND_FRAME = 0x00
-#     COMMAND_CHANNEL = ??
+    #     COMMAND_CHANNEL = ??
 
-    def __init__(self, callback, channel = DEFAULT_CHANNEL):
-
-        stats['Captured'] = 0
-        stats['Non-Frame'] = 0
+    def __init__(self, callback, channel=DEFAULT_CHANNEL):
+        stats["Captured"] = 0
+        stats["Non-Frame"] = 0
 
         self.dev = None
         self.channel = channel
@@ -319,24 +327,32 @@ class CC2531:
         self.running = False
 
         try:
-            self.dev = usb.core.find(idVendor=0x0451, idProduct=0x16ae)
+            self.dev = usb.core.find(idVendor=0x0451, idProduct=0x16AE)
         except usb.core.USBError:
-            raise OSError("Permission denied, you need to add an udev rule for this device", errno=errno.EACCES)
+            raise OSError(
+                "Permission denied, you need to add an udev rule for this device",
+                errno=errno.EACCES,
+            )
 
         if self.dev is None:
             raise IOError("Device not found")
 
-        self.dev.set_configuration() # must call this to establish the USB's "Config"
+        self.dev.set_configuration()  # must call this to establish the USB's "Config"
         self.name = self.dev.product or "CC2531 Sniffer Dongle"
-        self.ident = self.dev.ctrl_transfer(CC2531.DIR_IN, CC2531.GET_IDENT, 0, 0, 256) # get identity from Firmware command
+        self.ident = self.dev.ctrl_transfer(
+            CC2531.DIR_IN, CC2531.GET_IDENT, 0, 0, 256
+        )  # get identity from Firmware command
 
         # power on radio, wIndex = 4
         self.dev.ctrl_transfer(CC2531.DIR_OUT, CC2531.SET_POWER, wIndex=4)
 
         while True:
             # check if powered up
-            power_status = self.dev.ctrl_transfer(CC2531.DIR_IN, CC2531.GET_POWER, 0, 0, 1)
-            if power_status[0] == 4: break
+            power_status = self.dev.ctrl_transfer(
+                CC2531.DIR_IN, CC2531.GET_POWER, 0, 0, 1
+            )
+            if power_status[0] == 4:
+                break
             time.sleep(0.1)
 
         self.set_channel(channel)
@@ -364,10 +380,11 @@ class CC2531:
         return self.running
 
     def recv(self):
-
         while self.running:
             try:
-                bytesteam = self.dev.read(CC2531.DATA_EP, 4096, timeout=CC2531.DATA_TIMEOUT)
+                bytesteam = self.dev.read(
+                    CC2531.DATA_EP, 4096, timeout=CC2531.DATA_TIMEOUT
+                )
             except usb.core.USBTimeoutError as e:
                 logger.warning("USB Timeout error")
                 continue
@@ -379,7 +396,7 @@ class CC2531:
                 else:
                     raise e
 
-#             print "RECV>> %s" % binascii.hexlify(bytesteam)
+            #             print "RECV>> %s" % binascii.hexlify(bytesteam)
 
             if len(bytesteam) >= 3:
                 (cmd, cmdLen) = struct.unpack_from("<BH", bytesteam)
@@ -389,8 +406,8 @@ class CC2531:
                 elif len(bytesteam) == cmdLen:
                     # buffer contains the correct number of bytes
                     if CC2531.COMMAND_FRAME == cmd:
-                        logger.debug('Read a frame of size %d' % (cmdLen,))
-                        stats['Captured'] += 1
+                        logger.debug("Read a frame of size %d" % (cmdLen,))
+                        stats["Captured"] += 1
                         (timestamp, pktLen) = struct.unpack_from("<IB", bytesteam)
                         frame = bytesteam[5:]
 
@@ -400,16 +417,21 @@ class CC2531:
                         if len(frame) == pktLen:
                             self.callback(timestamp, frame.tobytes())
                         else:
-                            logger.warning("Received a frame with incorrect length, pkgLen:%d, len(frame):%d" %(pktLen, len(frame)))
+                            logger.warning(
+                                "Received a frame with incorrect length, pkgLen:%d, len(frame):%d"
+                                % (pktLen, len(frame))
+                            )
 
-#                     elif cmd == CC2531.COMMAND_CHANNEL:
-#                         logger.info('Received a command response: [%02x %02x]' % (cmd, bytesteam[0]))
-#                         # We'll only ever see this if the user asked for it, so we are
-#                         # running interactive. Print away
-#                         print 'Sniffing in channel: %d' % (bytesteam[0],)
+                    #                     elif cmd == CC2531.COMMAND_CHANNEL:
+                    #                         logger.info('Received a command response: [%02x %02x]' % (cmd, bytesteam[0]))
+                    #                         # We'll only ever see this if the user asked for it, so we are
+                    #                         # running interactive. Print away
+                    #                         print 'Sniffing in channel: %d' % (bytesteam[0],)
                     else:
-                        logger.debug("Received a command response with unknown code - CMD:%02x byte:%02x]" % (cmd, bytesteam[0]))
-
+                        logger.debug(
+                            "Received a command response with unknown code - CMD:%02x byte:%02x]"
+                            % (cmd, bytesteam[0])
+                        )
 
     def set_channel(self, channel):
         was_running = self.running
@@ -436,7 +458,6 @@ class CC2531:
         return self.channel
 
     def __repr__(self):
-
         if self.dev:
             return "%s <Channel: %d>" % (self.name, self.channel)
         else:
@@ -444,128 +465,180 @@ class CC2531:
 
 
 def arg_parser():
-    debug_choices = ('DEBUG', 'INFO', 'WARN', 'ERROR')
+    debug_choices = ("DEBUG", "INFO", "WARN", "ERROR")
 
-    parser = argparse.ArgumentParser(add_help = False,
-                                     description = 'Read IEEE802.15.4 frames \
+    parser = argparse.ArgumentParser(
+        add_help=False,
+        description="Read IEEE802.15.4 frames \
     from a CC2531 packet sniffer device, convert them to pcap and pipe them \
     into wireshark over a FIFO pipe for online analysis. Frames \
     can also be saved in a file in hexdump and/or pcap format for offline \
-    analysis.')
+    analysis.",
+    )
 
-    in_group = parser.add_argument_group('Input Options')
-    in_group.add_argument('-c', '--channel', type = int, action = 'store',
-                          choices = range(11, 27),
-                          default = defaults['channel'],
-                          help = 'Set the sniffer\'s CHANNEL. Valid range: 11-26. \
-                                  (Default: %s)' % (defaults['channel'],))
-    out_group = parser.add_argument_group('Output Options')
-    out_group.add_argument('-f', '--fifo', action = 'store',
-                           default = defaults['out_fifo'],
-                           help = 'Set FIFO as the named pipe for sending to wireshark. \
+    in_group = parser.add_argument_group("Input Options")
+    in_group.add_argument(
+        "-c",
+        "--channel",
+        type=int,
+        action="store",
+        choices=range(11, 27),
+        default=defaults["channel"],
+        help="Set the sniffer's CHANNEL. Valid range: 11-26. \
+                                  (Default: %s)"
+        % (defaults["channel"],),
+    )
+    out_group = parser.add_argument_group("Output Options")
+    out_group.add_argument(
+        "-f",
+        "--fifo",
+        action="store",
+        default=defaults["out_fifo"],
+        help="Set FIFO as the named pipe for sending to wireshark. \
                                    If argument is omitted and -o option is not specified \
-                                   the capture will pipe to: %s' % (defaults['out_fifo'],))
-    out_group.add_argument('-o', '--offline', action = 'store_true',
-                           default = False,
-                           help = 'Disables sending the capture to the named pipe.')
-    out_group.add_argument('-x', '--hex-file', action = 'store', nargs = '?',
-                           const = defaults['hex_file'], default = False,
-                           help = 'Save the capture (hexdump) in HEX_FILE. \
+                                   the capture will pipe to: %s"
+        % (defaults["out_fifo"],),
+    )
+    out_group.add_argument(
+        "-o",
+        "--offline",
+        action="store_true",
+        default=False,
+        help="Disables sending the capture to the named pipe.",
+    )
+    out_group.add_argument(
+        "-x",
+        "--hex-file",
+        action="store",
+        nargs="?",
+        const=defaults["hex_file"],
+        default=False,
+        help="Save the capture (hexdump) in HEX_FILE. \
                                    If -x is specified but HEX_FILE is omitted, \
                                    %s will be used. If the argument is \
                                    omitted altogether, the capture will not \
-                                   be saved.' % (defaults['hex_file'],))
-    out_group.add_argument('-p', '--pcap-file', action = 'store', nargs = '?',
-                           const = defaults['pcap_file'], default = False,
-                           help = 'Save the capture (pcap format) in PCAP_FILE. \
+                                   be saved."
+        % (defaults["hex_file"],),
+    )
+    out_group.add_argument(
+        "-p",
+        "--pcap-file",
+        action="store",
+        nargs="?",
+        const=defaults["pcap_file"],
+        default=False,
+        help="Save the capture (pcap format) in PCAP_FILE. \
                                    If -p is specified but PCAP_FILE is omitted, \
                                    %s will be used. If the argument is \
                                    omitted altogether, the capture will not \
-                                   be saved.' % (defaults['pcap_file'],))
+                                   be saved."
+        % (defaults["pcap_file"],),
+    )
 
-
-    log_group = parser.add_argument_group('Verbosity and Logging')
-    log_group.add_argument('-d', '--headless', action = 'store_true',
-                           default = False,
-                           help = 'Run in non-interactive/headless mode, without \
-                                   accepting user input. (Default Disabled)')
-    log_group.add_argument('-D', '--debug-level', action = 'store',
-                           choices = debug_choices,
-                           default = defaults['debug_level'],
-                           help = 'Print messages of severity DEBUG_LEVEL \
-                                   or higher (Default %s)'
-                                   % (defaults['debug_level'],))
-    log_group.add_argument('-L', '--log-file', action = 'store', nargs = '?',
-                           const = defaults['log_file'], default = False,
-                           help = 'Log output in LOG_FILE. If -L is specified \
+    log_group = parser.add_argument_group("Verbosity and Logging")
+    log_group.add_argument(
+        "-d",
+        "--headless",
+        action="store_true",
+        default=False,
+        help="Run in non-interactive/headless mode, without \
+                                   accepting user input. (Default Disabled)",
+    )
+    log_group.add_argument(
+        "-D",
+        "--debug-level",
+        action="store",
+        choices=debug_choices,
+        default=defaults["debug_level"],
+        help="Print messages of severity DEBUG_LEVEL \
+                                   or higher (Default %s)"
+        % (defaults["debug_level"],),
+    )
+    log_group.add_argument(
+        "-L",
+        "--log-file",
+        action="store",
+        nargs="?",
+        const=defaults["log_file"],
+        default=False,
+        help="Log output in LOG_FILE. If -L is specified \
                                    but LOG_FILE is omitted, %s will be used. \
                                    If the argument is omitted altogether, \
-                                   logging will not take place at all.'
-                                   % (defaults['log_file'],))
-    log_group.add_argument('-l', '--log-level', action = 'store',
-                           choices = debug_choices,
-                           default = defaults['log_level'],
-                           help = 'Log messages of severity LOG_LEVEL or \
+                                   logging will not take place at all."
+        % (defaults["log_file"],),
+    )
+    log_group.add_argument(
+        "-l",
+        "--log-level",
+        action="store",
+        choices=debug_choices,
+        default=defaults["log_level"],
+        help="Log messages of severity LOG_LEVEL or \
                                    higher. Only makes sense if -L is also \
-                                   specified (Default %s)'
-                                   % (defaults['log_level'],))
+                                   specified (Default %s)"
+        % (defaults["log_level"],),
+    )
 
-    gen_group = parser.add_argument_group('General Options')
-    gen_group.add_argument('-v', '--version', action = 'version',
-                           version = 'ccsniffpiper v%s' % (__version__))
-    gen_group.add_argument('-h', '--help', action = 'help',
-                           help = 'Shows this message and exits')
+    gen_group = parser.add_argument_group("General Options")
+    gen_group.add_argument(
+        "-v", "--version", action="version", version="ccsniffpiper v%s" % (__version__)
+    )
+    gen_group.add_argument(
+        "-h", "--help", action="help", help="Shows this message and exits"
+    )
 
     return parser.parse_args()
+
 
 def dump_stats():
     s = io.StringIO()
 
-    s.write('Frame Stats:\n')
+    s.write("Frame Stats:\n")
     for k, v in stats.items():
-        s.write('%20s: %d\n' % (k, v))
+        s.write("%20s: %d\n" % (k, v))
 
     print(s.getvalue())
+
 
 def log_init():
     logger.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
     ch.setLevel(getattr(logging, args.debug_level))
-    cf = logging.Formatter('%(asctime)s %(message)s')
+    cf = logging.Formatter("%(asctime)s %(message)s")
     ch.setFormatter(cf)
     logger.addHandler(ch)
 
     if args.log_file is not False:
-        fh = logging.handlers.RotatingFileHandler(filename = args.log_file,
-                                                  maxBytes = 5000000)
+        fh = logging.handlers.RotatingFileHandler(
+            filename=args.log_file, maxBytes=5000000
+        )
         fh.setLevel(getattr(logging, args.log_level))
-        ff = logging.Formatter(
-            '%(asctime)s - %(levelname)8s - %(message)s')
+        ff = logging.Formatter("%(asctime)s - %(levelname)8s - %(message)s")
         fh.setFormatter(ff)
         logger.addHandler(fh)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     args = arg_parser()
     log_init()
 
-    logger.info('Started logging')
+    logger.info("Started logging")
 
     handlers = []
 
     def handlerDispatcher(timestamp, macPDU):
-        """ Dispatches any received frames to all registered handlers
+        """Dispatches any received frames to all registered handlers
 
-            timestamp -> The timestamp the frame was received, as reported by the sniffer device, in microseconds
-            macPDU -> The 802.15.4 MAC-layer PDU, starting with the Frame Control Field (FCF)
+        timestamp -> The timestamp the frame was received, as reported by the sniffer device, in microseconds
+        macPDU -> The 802.15.4 MAC-layer PDU, starting with the Frame Control Field (FCF)
         """
         if len(macPDU) > 0:
             frame = Frame(macPDU, timestamp)
             for h in handlers:
                 h.handle(frame)
 
-
     if args.offline is not True:
-        f = FifoHandler(out_fifo = args.fifo)
+        f = FifoHandler(out_fifo=args.fifo)
         handlers.append(f)
     if args.hex_file is not False:
         handlers.append(HexdumpHandler(args.hex_file))
@@ -574,22 +647,21 @@ if __name__ == '__main__':
 
     if args.headless is False:
         h = io.StringIO()
-        h.write('Commands:\n')
-        h.write('c: Print current RF Channel\n')
-        h.write('n: Trigger new pcap header before the next frame\n')
-        h.write('h,?: Print this message\n')
-        h.write('[11,26]: Change RF channel\n')
-        h.write('s: Start/stop the packet capture\n')
-        h.write('q: Quit')
+        h.write("Commands:\n")
+        h.write("c: Print current RF Channel\n")
+        h.write("n: Trigger new pcap header before the next frame\n")
+        h.write("h,?: Print this message\n")
+        h.write("[11,26]: Change RF channel\n")
+        h.write("s: Start/stop the packet capture\n")
+        h.write("q: Quit")
         h = h.getvalue()
 
-        e = 'Unknown Command. Type h or ? for help'
+        e = "Unknown Command. Type h or ? for help"
 
         print(h)
 
     snifferDev = CC2531(handlerDispatcher, args.channel)
     try:
-
         while 1:
             if args.headless is True:
                 if not snifferDev.isRunning():
@@ -598,21 +670,30 @@ if __name__ == '__main__':
                 snifferDev.thread.join()
             else:
                 try:
-                    if select.select([sys.stdin, ], [], [], 10.0)[0]:
+                    if select.select(
+                        [
+                            sys.stdin,
+                        ],
+                        [],
+                        [],
+                        10.0,
+                    )[0]:
                         cmd = sys.stdin.readline().rstrip()
                         logger.debug('User input: "%s"' % (cmd,))
-                        if cmd in ('h', '?'):
+                        if cmd in ("h", "?"):
                             print(h)
-                        elif cmd == 'c':
+                        elif cmd == "c":
                             # We'll only ever see this if the user asked for it, so we are
                             # running interactive. Print away
-                            print('Sniffing in channel: %d' % (snifferDev.get_channel(),))
-                        elif cmd == 'n':
+                            print(
+                                "Sniffing in channel: %d" % (snifferDev.get_channel(),)
+                            )
+                        elif cmd == "n":
                             f.triggerNewGlobalHeader()
-                        elif cmd == 'q':
-                            logger.info('User requested shutdown')
+                        elif cmd == "q":
+                            logger.info("User requested shutdown")
                             sys.exit(0)
-                        elif cmd == 's':
+                        elif cmd == "s":
                             if snifferDev.isRunning():
                                 snifferDev.stop()
                             else:
@@ -621,10 +702,10 @@ if __name__ == '__main__':
                             snifferDev.set_channel(int(cmd))
                         else:
                             raise ValueError
-#                    else:
-#                        logger.debug('No user input')
+                #                    else:
+                #                        logger.debug('No user input')
                 except select.error:
-                    logger.warning('Error while trying to read stdin')
+                    logger.warning("Error while trying to read stdin")
                 except ValueError as e:
                     print(e)
                 except UnboundLocalError:
@@ -632,9 +713,8 @@ if __name__ == '__main__':
                     pass
 
     except (KeyboardInterrupt, SystemExit):
-        logger.info('Shutting down')
+        logger.info("Shutting down")
         if snifferDev.isRunning():
             snifferDev.stop()
         dump_stats()
         sys.exit(0)
-

@@ -5,3 +5,6 @@
 ccsniffpiper.spec
 build/
 dist/
+
+# Grant's stuff
+.local.vimrc
